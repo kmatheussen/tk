@@ -1256,6 +1256,48 @@ MODULE_SCOPE int	TkBackgroundEvalObjv(Tcl_Interp *interp,
 			    Tcl_Size objc, Tcl_Obj *const *objv, int flags);
 MODULE_SCOPE void	TkDrawDottedRect(Display *disp, Drawable d, GC gc,
 			    int x, int y, int width, int height);
+MODULE_SCOPE void	TkCanvasDrawLines(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, GC gc, XPoint *points,
+			    Tcl_Size npoints, double width, XColor *color,
+			    int capStyle, int joinStyle, Tk_Dash *dash,
+			    Pixmap stipple);
+MODULE_SCOPE void	TkCanvasDrawEnd(void);
+MODULE_SCOPE void	TkCanvasInitAntialiasVars(Tcl_Interp *interp,
+			    const char *namespaceName, int *enabledPtr,
+			    int *limitPtr);
+MODULE_SCOPE bool	TkCanvasPrepareLineAA(double width, Tk_Dash *dash,
+			    Pixmap stipple, int limit, int *intWidthPtr,
+			    double *offsetPtr);
+
+/*
+ * Path styles for TkCanvasDrawArcAA().
+ */
+
+#define TK_CANVAS_ARC_STYLE	0
+#define TK_CANVAS_CHORD_STYLE	1
+#define TK_CANVAS_PIE_STYLE	2
+#define TK_CANVAS_OVAL_STYLE	3
+
+MODULE_SCOPE bool	TkCanvasDrawLinesAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, XPoint *points, Tcl_Size npoints,
+			    double width, XColor *color, int capStyle,
+			    int joinStyle, Tk_Dash *dash, Pixmap stipple);
+MODULE_SCOPE bool	TkCanvasFillCoordsAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, double *coords, Tcl_Size npoints,
+			    XColor *color, Pixmap stipple);
+MODULE_SCOPE bool	TkCanvasFillPolygonAA(Tk_Canvas canvas,
+			    Display *display, Drawable drawable, XPoint *points,
+			    Tcl_Size npoints, XColor *color, Pixmap stipple);
+MODULE_SCOPE bool	TkCanvasDrawArcAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, int x1, int y1, int x2, int y2,
+			    int start, int extent, int style, XColor *fillColor,
+			    XColor *outlineColor, double width, Pixmap stipple);
+MODULE_SCOPE void	TkCanvasOutlineStyle(Tk_Canvas canvas, Tk_Item *item,
+			    Tk_Outline *outline, XColor **colorPtr,
+			    double *widthPtr, Tk_Dash **dashPtr,
+			    Pixmap *stipplePtr);
+MODULE_SCOPE XColor *	TkCanvasFillColor(Tk_Canvas canvas, Tk_Item *item,
+			    XColor *normal, XColor *active, XColor *disabled);
 MODULE_SCOPE Tcl_Command TkMakeEnsemble(Tcl_Interp *interp,
 			    const char *nsname, const char *name,
 			    void *clientData, const TkEnsemble *map);

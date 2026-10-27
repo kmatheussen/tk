@@ -122,6 +122,9 @@ typedef struct TkCanvas {
 				 * upper-left corner of the drawable where
 				 * items are actually being drawn (typically a
 				 * pixmap smaller than the whole window). */
+    int drawableWidth, drawableHeight;
+				/* Size of the drawable in the same device
+				 * units. Zero when no drawable is active. */
 
     /*
      * Information used for event bindings associated with items.

@@ -711,6 +711,7 @@ Tk_CanvasObjCmd(
     canvasPtr->insertBlinkHandler = NULL;
     canvasPtr->xOrigin = canvasPtr->yOrigin = 0;
     canvasPtr->drawableXOrigin = canvasPtr->drawableYOrigin = 0;
+    canvasPtr->drawableWidth = canvasPtr->drawableHeight = 0;
     canvasPtr->bindingTable = NULL;
     canvasPtr->currentItemPtr = NULL;
     canvasPtr->newCurrentPtr = NULL;
@@ -2700,6 +2701,8 @@ DrawCanvas(
 	result = TCL_ERROR;
 	goto done;
     }
+    canvasPtr->drawableWidth = pmWidth;
+    canvasPtr->drawableHeight = pmHeight;
 
     /*
      * Before we can draw the canvas objects into the pixmap it's background
@@ -2733,6 +2736,7 @@ DrawCanvas(
 	ItemDisplay(canvasPtr, itemPtr, pixmap, pixmapX1, pixmapY1, pmWidth,
 		pmHeight);
     }
+    TkCanvasDrawEnd();
 
     /*
      * Copy the Pixmap into an ZPixmap format XImage so we can copy it across
@@ -3146,6 +3150,8 @@ DisplayCanvas(
 
 	canvasPtr->drawableXOrigin = screenX1 - 30;
 	canvasPtr->drawableYOrigin = screenY1 - 30;
+	canvasPtr->drawableWidth = screenX2 + 30 - canvasPtr->drawableXOrigin;
+	canvasPtr->drawableHeight = screenY2 + 30 - canvasPtr->drawableYOrigin;
 	pixmap = Tk_GetPixmap(Tk_Display(tkwin), Tk_WindowId(tkwin),
 	    (screenX2 + 30 - canvasPtr->drawableXOrigin),
 	    (screenY2 + 30 - canvasPtr->drawableYOrigin),
@@ -3153,6 +3159,8 @@ DisplayCanvas(
 #else
 	canvasPtr->drawableXOrigin = canvasPtr->xOrigin;
 	canvasPtr->drawableYOrigin = canvasPtr->yOrigin;
+	canvasPtr->drawableWidth = Tk_Width(tkwin);
+	canvasPtr->drawableHeight = Tk_Height(tkwin);
 	pixmap = Tk_WindowId(tkwin);
 	Tk_ClipDrawableToRect(Tk_Display(tkwin), pixmap,
 		screenX1 - canvasPtr->xOrigin, screenY1 - canvasPtr->yOrigin,
@@ -3220,6 +3228,7 @@ DisplayCanvas(
 	    ItemDisplay(canvasPtr, itemPtr, pixmap, screenX1, screenY1, width,
 		    height);
 	}
+	TkCanvasDrawEnd();
 
 #ifndef TK_NO_DOUBLE_BUFFERING
 	/*
@@ -3234,6 +3243,7 @@ DisplayCanvas(
 		(unsigned int) width, (unsigned int) height,
 		screenX1 - canvasPtr->xOrigin, screenY1 - canvasPtr->yOrigin);
 	Tk_FreePixmap(Tk_Display(tkwin), pixmap);
+	canvasPtr->drawableWidth = canvasPtr->drawableHeight = 0;
 #else
 	Tk_ClipDrawableToRect(Tk_Display(tkwin), pixmap, 0, 0, -1, -1);
 #endif /* TK_NO_DOUBLE_BUFFERING */

@@ -1626,6 +1626,335 @@ test canvas-30.4 {a filled polygon without outline and many points is drawn in r
 } -result 1
 
 #
+# Antialiased line drawing.  The ::tk::x11::canvas* controls only exist when
+# Tk is built with Cairo, the ::tk::win::canvas* controls always exist on
+# Windows.  When present and the antialiased renderer is actually in use, a
+# one pixel thick 45 degree line on a white background produces a blended
+# pixel; the ordinary renderer only produces pure black and white pixels.
+#
+
+set canvasAntialiasVar ""
+foreach ns {::tk::x11 ::tk::win} {
+    if {[info exists ${ns}::canvasAntialias]} {
+	set canvasAntialiasVar ${ns}::canvasAntialias
+	set canvasAntialiasLimitVar ${ns}::canvasAntialiasLimit
+	break
+    }
+}
+testConstraint canvasAntialiasControls [expr {$canvasAntialiasVar ne ""}]
+
+proc sampleDiagonal {args} {
+    .aatest delete sample
+    .aatest create line 0 0 39 39 -width 1 -fill black -tags sample {*}$args
+    update
+    return [string tolower [testpixel .aatest 20 20]]
+}
+
+set canvasAntialiasActive 0
+if {[testConstraint canvasAntialiasControls] && [testConstraint testpixel]
+	&& [testConstraint notAqua]} {
+    set probeEnabled [set $canvasAntialiasVar]
+    set probeLimit [set $canvasAntialiasLimitVar]
+    if {[catch {
+	destroy .aatest
+	canvas .aatest -width 40 -height 40 -background white \
+		-highlightthickness 0 -borderwidth 0
+	pack .aatest
+	update
+	set $canvasAntialiasLimitVar 0
+	set $canvasAntialiasVar 1
+	set antialiasedPixel [sampleDiagonal]
+	set $canvasAntialiasVar 0
+	set plainPixel [sampleDiagonal]
+	set canvasAntialiasActive [expr {
+	    $antialiasedPixel ni {#000000 #ffffff}
+	    && $antialiasedPixel ne $plainPixel
+	}]
+    }]} {
+	set canvasAntialiasActive 0
+    }
+    set $canvasAntialiasVar $probeEnabled
+    set $canvasAntialiasLimitVar $probeLimit
+    catch {destroy .aatest}
+    unset probeEnabled probeLimit
+}
+testConstraint canvasAntialias $canvasAntialiasActive
+
+test canvas-31.1 {the canvas antialiasing controls have sensible defaults} \
+	-constraints {canvasAntialiasControls} -body {
+    list [set $::canvasAntialiasVar] [set $::canvasAntialiasLimitVar]
+} -result {1 0}
+
+test canvas-31.2 {the canvas antialiasing controls are type checked} \
+	-constraints {canvasAntialiasControls} -setup {
+    set oldEnabled [set $::canvasAntialiasVar]
+    set oldLimit [set $::canvasAntialiasLimitVar]
+} -body {
+    set $::canvasAntialiasVar false
+    set $::canvasAntialiasLimitVar 3
+    set res [list [expr {[set $::canvasAntialiasVar] ? 1 : 0}] \
+	    [set $::canvasAntialiasLimitVar]]
+    lappend res [catch {set $::canvasAntialiasLimitVar nope}]
+    set res
+} -cleanup {
+    set $::canvasAntialiasVar $oldEnabled
+    set $::canvasAntialiasLimitVar $oldLimit
+    unset oldEnabled oldLimit
+} -result {0 3 1}
+
+test canvas-31.3 {antialiased line items blend with the background} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    destroy .c
+    canvas .c -width 40 -height 40 -background white -highlightthickness 0 \
+	    -borderwidth 0
+    pack .c
+    update
+} -body {
+    .c create line 0 0 39 39 -width 1 -fill black
+    update
+    set c [string tolower [testpixel .c 20 20]]
+    expr {$c ni {#000000 #ffffff}}
+} -cleanup {
+    destroy .c
+} -result 1
+
+test canvas-31.4 {lines narrower than the antialias limit are not antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    destroy .c
+    canvas .c -width 40 -height 40 -background white -highlightthickness 0 \
+	    -borderwidth 0
+    pack .c
+    update
+} -body {
+    set ::probeLimit [set $::canvasAntialiasLimitVar]
+    set $::canvasAntialiasLimitVar 2
+    .c create line 0 0 39 39 -width 1 -fill black
+    update
+    set c [string tolower [testpixel .c 20 20]]
+    set $::canvasAntialiasLimitVar $::probeLimit
+    unset ::probeLimit
+    expr {$c in {#000000 #ffffff}}
+} -cleanup {
+    if {[info exists ::probeLimit]} {
+	set $::canvasAntialiasLimitVar $::probeLimit
+	unset ::probeLimit
+    }
+    destroy .c
+} -result 1
+
+test canvas-31.5 {disabling canvasAntialias uses the ordinary renderer} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    destroy .c
+    canvas .c -width 40 -height 40 -background white -highlightthickness 0 \
+	    -borderwidth 0
+    pack .c
+    update
+} -body {
+    set ::probeEnabled [set $::canvasAntialiasVar]
+    set $::canvasAntialiasVar 0
+    .c create line 0 0 39 39 -width 1 -fill black
+    update
+    set c [string tolower [testpixel .c 20 20]]
+    set $::canvasAntialiasVar $::probeEnabled
+    unset ::probeEnabled
+    expr {$c in {#000000 #ffffff}}
+} -cleanup {
+    if {[info exists ::probeEnabled]} {
+	set $::canvasAntialiasVar $::probeEnabled
+	unset ::probeEnabled
+    }
+    destroy .c
+} -result 1
+
+test canvas-31.6 {dashed line items are not antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    destroy .c
+    canvas .c -width 40 -height 40 -background white -highlightthickness 0 \
+	    -borderwidth 0
+    pack .c
+    update
+} -body {
+    set res 1
+    .c create line 0 0 39 39 -width 1 -fill black -dash {4 4}
+    update
+    for {set i 5} {$i < 35} {incr i} {
+	set c [string tolower [testpixel .c $i $i]]
+	if {$c ni {#000000 #ffffff}} {
+	    set res 0
+	}
+    }
+    set res
+} -cleanup {
+    destroy .c
+} -result 1
+
+#
+# Antialiased outlines and fills of the other item types.
+#
+
+proc countBlended {w x0 y0 x1 y1 pure} {
+    set n 0
+    for {set y $y0} {$y <= $y1} {incr y} {
+	for {set x $x0} {$x <= $x1} {incr x} {
+	    set c [string tolower [testpixel $w $x $y]]
+	    if {$c ni $pure} {
+		incr n
+	    }
+	}
+    }
+    return $n
+}
+
+proc aaCanvas {} {
+    destroy .c
+    canvas .c -width 200 -height 200 -background white -highlightthickness 0 \
+	    -borderwidth 0
+    pack .c
+    update
+}
+
+test canvas-32.1 {a rectangle outline is not blurred by antialiasing} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create rectangle 40 40 160 160 -fill {} -outline black -width 1
+    update
+    set blended [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    list [expr {$blended < 400}] [testpixel .c 100 40] \
+	    [testpixel .c 100 39] [testpixel .c 100 41]
+} -cleanup {
+    destroy .c
+} -result {1 #000000 #ffffff #ffffff}
+
+test canvas-32.2 {an oval outline is antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create oval 40 40 160 160 -fill {} -outline black -width 1
+    update
+    set on [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    set $::canvasAntialiasVar 0
+    .c delete 1
+    .c create oval 40 40 160 160 -fill {} -outline black -width 1
+    update
+    set off [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    set $::canvasAntialiasVar 1
+    list [expr {$on > 0}] $off
+} -cleanup {
+    set $::canvasAntialiasVar 1
+    destroy .c
+} -result {1 0}
+
+test canvas-32.3 {a pie slice is filled on the arc side and antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create arc 20 20 180 180 -start 0 -extent 90 -style pieslice \
+	    -fill red -outline black -width 2
+    update
+    set inside [testpixel .c 150 60]
+    set outside [testpixel .c 150 150]
+    set blended [countBlended .c 0 0 199 199 {#000000 #ffffff #ff0000}]
+    list [expr {$inside eq "#ff0000"}] [expr {$outside eq "#ffffff"}] \
+	    [expr {$blended > 0}]
+} -cleanup {
+    destroy .c
+} -result {1 1 1}
+
+test canvas-32.4 {a chord is filled outside the chord and antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create arc 20 20 180 180 -start 0 -extent 90 -style chord \
+	    -fill blue -outline black -width 2
+    update
+    set inSegment [testpixel .c 150 55]
+    set inCircle [testpixel .c 80 80]
+    set blended [countBlended .c 0 0 199 199 {#000000 #ffffff #0000ff}]
+    list [expr {$inSegment eq "#0000ff"}] [expr {$inCircle eq "#ffffff"}] \
+	    [expr {$blended > 0}]
+} -cleanup {
+    destroy .c
+} -result {1 1 1}
+
+test canvas-32.5 {a polygon outline and fill are antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create polygon 20 20 180 120 40 180 -fill #00ff00 -outline black \
+	    -width 2
+    update
+    set inside [testpixel .c 80 100]
+    set blended [countBlended .c 0 0 199 199 {#000000 #ffffff #00ff00}]
+    list [expr {$inside eq "#00ff00"}] [expr {$blended > 0}]
+} -cleanup {
+    destroy .c
+} -result {1 1}
+
+test canvas-32.6 {arrowheads are antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create line 20 180 180 20 -fill black -width 2 -arrow last \
+	    -arrowshape {20 24 8}
+    update
+    set on [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    set $::canvasAntialiasVar 0
+    .c delete 1
+    .c create line 20 180 180 20 -fill black -width 2 -arrow last \
+	    -arrowshape {20 24 8}
+    update
+    set off [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    set $::canvasAntialiasVar 1
+    list [expr {$on > 0}] $off
+} -cleanup {
+    set $::canvasAntialiasVar 1
+    destroy .c
+} -result {1 0}
+
+test canvas-32.7 {dashed outlines are not antialiased} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create rectangle 40 40 160 160 -fill {} -outline black -width 2 \
+	    -dash {6 4}
+    update
+    countBlended .c 0 0 199 199 {#000000 #ffffff}
+} -cleanup {
+    destroy .c
+} -result 0
+
+test canvas-32.8 {stippled fills keep the stipple pattern} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    aaCanvas
+} -body {
+    .c create oval 20 20 180 180 -fill red -stipple gray50 \
+	    -outline black -width 2
+    update
+    join [lsort [stippleColors .c 100 60]] ,
+} -cleanup {
+    destroy .c
+} -result {#ff0000,#ffffff}
+
+test canvas-32.9 {the antialias limit applies to outlines} \
+	-constraints {testpixel notAqua canvasAntialias} -setup {
+    set old [set $::canvasAntialiasLimitVar]
+    aaCanvas
+} -body {
+    set $::canvasAntialiasLimitVar 5
+    .c create oval 40 40 160 160 -fill {} -outline black -width 2
+    update
+    set blended [countBlended .c 0 0 199 199 {#000000 #ffffff}]
+    set ::tk::x11::canvasAntialiasLimit $old
+    update
+    set blended
+} -cleanup {
+    set ::tk::x11::canvasAntialiasLimit $old
+    destroy .c
+    unset old
+} -result 0
+
+#
 # TESTFILE CLEANUP
 #
 

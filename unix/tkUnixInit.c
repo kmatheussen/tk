@@ -46,6 +46,9 @@ TkpInit(
     Icu_Init(interp);
     Cups_Init(interp);
     TkAtkAccessibility_Init(interp);
+#ifdef HAVE_CAIRO
+    TkUnixInitCairoDrawing(interp);
+#endif
     return TCL_OK;
 }
 

@@ -617,6 +617,69 @@ AC_SUBST(XRENDER_CFLAGS)
 AC_SUBST(XRENDER_LIBS)
 
 #--------------------------------------------------------------------
+#	Check for Cairo, used for antialiased canvas line drawing on X11.
+#--------------------------------------------------------------------
+
+CAIRO_CFLAGS=""
+CAIRO_LIBS=""
+CAIRO_DEPS=""
+if test $tk_aqua = no; then
+    AC_MSG_CHECKING([whether to use cairo for antialiased canvas drawing])
+    AC_ARG_ENABLE(cairo,
+	AS_HELP_STRING([--enable-cairo],
+	    [use cairo for antialiased canvas line drawing (default: yes)]),
+	[enable_cairo=$enableval], [enable_cairo="yes"])
+    AC_MSG_RESULT([$enable_cairo])
+
+    if test "$enable_cairo" = "yes" ; then
+	found_cairo="yes"
+	CAIRO_CFLAGS=`pkg-config --cflags cairo 2>/dev/null` || found_cairo="no"
+	CAIRO_LIBS=`pkg-config --libs cairo 2>/dev/null` || found_cairo="no"
+	if test "$found_cairo" = "no" ; then
+	    found_cairo="yes"
+	    CAIRO_CFLAGS=""
+	    CAIRO_LIBS="-lcairo"
+	else
+	    CAIRO_DEPS="cairo"
+	fi
+
+	tk_oldCFlags=$CFLAGS
+	CFLAGS="$CFLAGS $XINCLUDES $CAIRO_CFLAGS"
+	tk_oldLibs=$LIBS
+	LIBS="$tk_oldLibs $CAIRO_LIBS $XLIBSW"
+
+	AC_CHECK_HEADER(cairo-xlib.h, [], [found_cairo=no],
+	    [#include <cairo.h>])
+	if test "$found_cairo" = "yes" ; then
+	    AC_CHECK_LIB(cairo, cairo_xlib_surface_create, [], [found_cairo=no])
+	fi
+
+	CFLAGS=$tk_oldCFlags
+	LIBS=$tk_oldLibs
+
+	if test "$found_cairo" = "yes" ; then
+	    if test "$enable_xrender" != "yes" ; then
+		AC_MSG_WARN([Cairo canvas drawing needs Xrender -- disabling])
+		found_cairo=no
+	    fi
+	fi
+
+	if test "$found_cairo" = "yes" ; then
+	    AC_DEFINE(HAVE_CAIRO, 1, [Have we turned on Cairo canvas drawing?])
+	else
+	    AC_MSG_WARN([Can't find usable cairo -- canvas lines will not be antialiased])
+	    enable_cairo=no
+	    CAIRO_CFLAGS=""
+	    CAIRO_LIBS=""
+	    CAIRO_DEPS=""
+	fi
+    fi
+fi
+AC_SUBST(CAIRO_CFLAGS)
+AC_SUBST(CAIRO_LIBS)
+AC_SUBST(CAIRO_DEPS)
+
+#--------------------------------------------------------------------
 #	Check for libcups support
 #--------------------------------------------------------------------
 

@@ -752,7 +752,10 @@ DisplayRectOval(
 {
     RectOvalItem *rectOvalPtr = (RectOvalItem *) itemPtr;
     short x1, y1, x2, y2;
-    Pixmap fillStipple;
+    XColor *fillColor, *outlineColor;
+    Tk_Dash *outlineDash;
+    Pixmap fillStipple, outlineStipple;
+    double linewidth;
     Tk_State state = itemPtr->state;
 
     /*
@@ -884,6 +887,11 @@ DisplayRectOval(
 	}
     }
 
+    fillColor = TkCanvasFillColor(canvas, itemPtr, rectOvalPtr->fillColor,
+	    rectOvalPtr->activeFillColor, rectOvalPtr->disabledFillColor);
+    TkCanvasOutlineStyle(canvas, itemPtr, &rectOvalPtr->outline,
+	    &outlineColor, &linewidth, &outlineDash, &outlineStipple);
+
     if (rectOvalPtr->fillGC != NULL) {
 	if (fillStipple != None) {
 	    Tk_TSOffset *tsoffset;
@@ -916,12 +924,26 @@ DisplayRectOval(
 	    }
 	}
 	if (rectOvalPtr->header.typePtr == &tkRectangleType) {
-	    XFillRectangle(display, drawable, rectOvalPtr->fillGC,
-		    x1, y1, (unsigned int) (x2-x1), (unsigned int) (y2-y1));
+	    XPoint points[4];
+
+	    points[0].x = points[3].x = x1;
+	    points[1].x = points[2].x = x2;
+	    points[0].y = points[1].y = y1;
+	    points[2].y = points[3].y = y2;
+	    if (!TkCanvasFillPolygonAA(canvas, display, drawable, points, 4,
+		    fillColor, fillStipple)) {
+		XFillRectangle(display, drawable, rectOvalPtr->fillGC,
+			x1, y1, (unsigned int) (x2-x1),
+			(unsigned int) (y2-y1));
+	    }
 	} else {
-	    XFillArc(display, drawable, rectOvalPtr->fillGC,
-		    x1, y1, (unsigned) (x2-x1), (unsigned) (y2-y1),
-		    0, 360*64);
+	    if (!TkCanvasDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+		    0, 360*64, TK_CANVAS_OVAL_STYLE, fillColor, NULL, 0,
+		    fillStipple)) {
+		XFillArc(display, drawable, rectOvalPtr->fillGC,
+			x1, y1, (unsigned) (x2-x1), (unsigned) (y2-y1),
+			0, 360*64);
+	    }
 	}
 	if (fillStipple != None) {
 	    XSetTSOrigin(display, rectOvalPtr->fillGC, 0, 0);
@@ -952,16 +974,35 @@ DisplayRectOval(
 		numPoints = TkCanvTranslatePath((TkCanvas *) canvas, 5, coords,
 			1, points);
 		if (numPoints > 1) {
-		    XDrawLines(display, drawable, rectOvalPtr->outline.gc,
-			    points, (int) numPoints, CoordModeOrigin);
+		    TkCanvasDrawLines(canvas, display, drawable,
+			    rectOvalPtr->outline.gc, points, numPoints,
+			    linewidth, outlineColor, CapButt, JoinMiter,
+			    outlineDash, outlineStipple);
 		}
 	    } else {
-		XDrawRectangle(display, drawable, rectOvalPtr->outline.gc,
-			x1, y1, (unsigned) (x2-x1), (unsigned) (y2-y1));
+		XPoint points[5];
+
+		points[0].x = points[3].x = points[4].x = x1;
+		points[1].x = points[2].x = x2;
+		points[0].y = points[1].y = y1;
+		points[2].y = points[3].y = y2;
+		points[4].y = y1;
+		if (!TkCanvasDrawLinesAA(canvas, display, drawable, points, 5,
+			linewidth, outlineColor, CapButt, JoinMiter, outlineDash,
+			outlineStipple)) {
+		    XDrawRectangle(display, drawable,
+			    rectOvalPtr->outline.gc, x1, y1,
+			    (unsigned) (x2-x1), (unsigned) (y2-y1));
+		}
 	    }
 	} else {
-	    XDrawArc(display, drawable, rectOvalPtr->outline.gc,
-		    x1, y1, (unsigned) (x2-x1), (unsigned) (y2-y1), 0, 360*64);
+	    if (!TkCanvasDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+		    0, 360*64, TK_CANVAS_OVAL_STYLE, NULL, outlineColor,
+		    linewidth, outlineStipple)) {
+		XDrawArc(display, drawable, rectOvalPtr->outline.gc,
+			x1, y1, (unsigned) (x2-x1), (unsigned) (y2-y1),
+			0, 360*64);
+	    }
 	}
 	Tk_ResetOutlineGC(canvas, itemPtr, &(rectOvalPtr->outline));
     }

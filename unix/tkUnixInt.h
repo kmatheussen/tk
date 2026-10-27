@@ -34,6 +34,22 @@ MODULE_SCOPE  int       SysNotify_Init (Tcl_Interp* interp);
 MODULE_SCOPE  int       Cups_Init (Tcl_Interp* interp);
 MODULE_SCOPE  int       TkAtkAccessibility_Init (Tcl_Interp *interp) ;
 
+#ifdef HAVE_CAIRO
+MODULE_SCOPE bool	TkUnixDrawLinesAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, XPoint *points, Tcl_Size npoints,
+			    double width, XColor *color, int capStyle,
+			    int joinStyle, Tk_Dash *dash, Pixmap stipple);
+MODULE_SCOPE bool	TkUnixFillPolygonAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, XPoint *points, Tcl_Size npoints,
+			    XColor *color);
+MODULE_SCOPE bool	TkUnixDrawArcAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, int x1, int y1, int x2, int y2,
+			    int start, int extent, int style, XColor *fillColor,
+			    XColor *outlineColor, double width, Pixmap stipple);
+MODULE_SCOPE void	TkUnixInitCairoDrawing(Tcl_Interp *interp);
+MODULE_SCOPE void	TkUnixCairoDrawingEnd(void);
+#endif
+
 #endif /* _TKUNIXINT */
 
 

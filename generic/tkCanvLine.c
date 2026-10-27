@@ -848,27 +848,18 @@ DisplayLine(
     LineItem *linePtr = (LineItem *)itemPtr;
     XPoint staticPoints[MAX_STATIC_POINTS*3];
     XPoint *pointPtr;
+    XColor *lineColor;
+    Tk_Dash *lineDash;
+    Pixmap lineStipple;
     double linewidth;
     Tcl_Size numPoints;
-    Tk_State state = itemPtr->state;
 
     if (!linePtr->numPoints || (linePtr->outline.gc == NULL)) {
 	return;
     }
 
-    if (state == TK_STATE_NULL) {
-	    state = Canvas(canvas)->canvas_state;
-    }
-    linewidth = linePtr->outline.width;
-    if (Canvas(canvas)->currentItemPtr == itemPtr) {
-	if (linePtr->outline.activeWidth != linewidth) {
-	    linewidth = linePtr->outline.activeWidth;
-	}
-    } else if (state == TK_STATE_DISABLED) {
-	if (linePtr->outline.disabledWidth != linewidth) {
-	    linewidth = linePtr->outline.disabledWidth;
-	}
-    }
+    TkCanvasOutlineStyle(canvas, itemPtr, &linePtr->outline, &lineColor,
+	    &linewidth, &lineDash, &lineStipple);
     /*
      * Build up an array of points in screen coordinates. Use a static array
      * unless the line has an enormous number of points; in this case,
@@ -909,8 +900,9 @@ DisplayLine(
 		&linePtr->outline.tsoffset);
     }
     if (numPoints > 1) {
-	XDrawLines(display, drawable, linePtr->outline.gc, pointPtr, (int)numPoints,
-		CoordModeOrigin);
+	TkCanvasDrawLines(canvas, display, drawable, linePtr->outline.gc,
+		pointPtr, numPoints, linewidth, lineColor, linePtr->capStyle,
+		linePtr->joinStyle, lineDash, lineStipple);
     } else {
 	int intwidth = (int) (linewidth + 0.5);
 
@@ -930,12 +922,18 @@ DisplayLine(
      */
 
     if (linePtr->firstArrowPtr != NULL) {
-	TkFillPolygon(canvas, linePtr->firstArrowPtr, PTS_IN_ARROW,
-		display, drawable, linePtr->arrowGC, NULL);
+	if (!TkCanvasFillCoordsAA(canvas, display, drawable,
+		linePtr->firstArrowPtr, PTS_IN_ARROW, lineColor, lineStipple)) {
+	    TkFillPolygon(canvas, linePtr->firstArrowPtr, PTS_IN_ARROW,
+		    display, drawable, linePtr->arrowGC, NULL);
+	}
     }
     if (linePtr->lastArrowPtr != NULL) {
-	TkFillPolygon(canvas, linePtr->lastArrowPtr, PTS_IN_ARROW,
-		display, drawable, linePtr->arrowGC, NULL);
+	if (!TkCanvasFillCoordsAA(canvas, display, drawable,
+		linePtr->lastArrowPtr, PTS_IN_ARROW, lineColor, lineStipple)) {
+	    TkFillPolygon(canvas, linePtr->lastArrowPtr, PTS_IN_ARROW,
+		    display, drawable, linePtr->arrowGC, NULL);
+	}
     }
     if (Tk_ResetOutlineGC(canvas, itemPtr, &linePtr->outline)) {
 	XSetTSOrigin(display, linePtr->arrowGC, 0, 0);

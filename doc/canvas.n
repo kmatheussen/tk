@@ -1263,6 +1263,25 @@ in the descriptions below.
 At present, text, line and polygon items provide this support.
 For lines and polygons the indexing facility is used to manipulate
 the coordinates of the item.
+.SS "ANTIALIASING"
+.PP
+On X11, when Tk is built with Cairo support, the solid outlines and fills
+of arc, line, oval, polygon and rectangle items, as well as line
+arrowheads, are antialiased by default. On Windows the same items are
+antialiased using GDI+.
+The variables
+\fB::tk::x11::canvasAntialias\fR (boolean, default 1),
+\fB::tk::x11::canvasAntialiasLimit\fR (integer, default 0),
+\fB::tk::win::canvasAntialias\fR (boolean, default 1) and
+\fB::tk::win::canvasAntialiasLimit\fR (integer, default 0) control this:
+setting the boolean to 0 disables antialiasing, and outlines narrower than
+the limit are drawn without antialiasing. The limit mirrors
+\fB::tk::mac::CGAntialiasLimit\fR. Cairo's Xlib backend needs the XRender
+extension, so on X11 antialiasing is only available in builds with XRender
+support.
+.PP
+Dashed and stippled outlines, and stippled fills, are still drawn by the
+ordinary (non-antialiased) renderer.
 .SS "COMMON ITEM OPTIONS"
 .PP
 Many items share a common set of options. These options are
@@ -1667,7 +1686,6 @@ used in \fBitemconfigure\fR widget commands to change the item's
 configuration. A line item is the current item whenever the mouse pointer is
 over any segment of the line, whether drawn or not and whether or not the line
 is smoothed.
-.PP
 The following standard options are supported by lines:
 .DS
 .ta 3i

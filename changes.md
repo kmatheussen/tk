@@ -186,4 +186,5 @@ in Tk 8.
  - [Painting performance improvements for images in ttk widgets](https://core.tcl-lang.org/tk/info/7caf9e9edcfbee42)
  - [Locale support for word handling in text and entry](https://core.tcl-lang.org/tips/doc/trunk/tip/687.md)
  - [Provide access to the full contents of the Info.plist file of a Tk-based macOS app](https://core.tcl-lang.org/tips/doc/trunk/tip/725.md)
+ - Antialias canvas item outlines and fills on X11 (Cairo) and Windows (GDI+), including lines, polygons, rectangles, ovals, arcs and line arrowheads, controlled by the `::tk::x11::canvasAntialias`/`::tk::x11::canvasAntialiasLimit` and `::tk::win::canvasAntialias`/`::tk::win::canvasAntialiasLimit` variables
 

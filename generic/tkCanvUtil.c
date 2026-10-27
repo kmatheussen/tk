@@ -16,6 +16,16 @@
 #ifdef _WIN32
 #include "tkWinInt.h"
 #endif
+#if defined(HAVE_CAIRO) && !defined(_WIN32) && !defined(MAC_OSX_TK)
+#include "tkUnixInt.h"
+#endif
+
+/*
+ * Maximum number of points to translate on the stack; larger polygons use a
+ * heap-allocated array.
+ */
+
+#define MAX_STATIC_POINTS 200
 
 /*
  * Structures defined only in this file.
@@ -92,6 +102,496 @@ Tk_CanvasTkwin(
     Tk_Canvas canvas)		/* Token for the canvas. */
 {
     return Canvas(canvas)->tkwin;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasPrepareLineAA --
+ *
+ *	Decides whether a canvas line item can be drawn by the antialiasing
+ *	renderer, and computes the pen width and pixel offset to use. This is
+ *	shared by the X11 (Cairo) and Windows (GDI+) back ends so that they
+ *	behave identically.
+ *
+ * Results:
+ *	Returns true when the antialiased path should be used. In that case
+ *	*intWidthPtr is set to the rounded line width and *offsetPtr to the
+ *	half-pixel offset that keeps odd-width lines crisp.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+bool
+TkCanvasPrepareLineAA(
+    double width,		/* Item line width, in pixels. */
+    Tk_Dash *dash,		/* Item dash pattern, or NULL for solid. */
+    Pixmap stipple,		/* Item stipple, or None. */
+    int limit,			/* Value of ::tk::*::canvasAntialiasLimit. */
+    int *intWidthPtr,		/* Filled with the pen width to use. */
+    double *offsetPtr)		/* Filled with the pixel offset to use. */
+{
+    int intWidth;
+
+    /*
+     * Dashed and stippled lines still use the GC path, which has already
+     * been configured for them by Tk_ChangeOutlineGC().
+     */
+
+    if ((dash != NULL && dash->number != 0) || stipple != None) {
+	return false;
+    }
+
+    /*
+     * Clamp the width the same way Tk_ChangeOutlineGC() does, so that a
+     * zero-width line is antialiased like the one-pixel line it is drawn
+     * as.
+     */
+
+    intWidth = (int) (width + 0.5);
+    if (intWidth < 1) {
+	intWidth = 1;
+    }
+    if (intWidth < limit) {
+	return false;
+    }
+
+    *intWidthPtr = intWidth;
+
+    /*
+     * Align odd-width lines to pixel centers. This is the same rule the
+     * macOS XDrawLines implementation uses, so 1-pixel horizontal and
+     * vertical lines stay crisp instead of becoming two gray rows.
+     */
+
+    *offsetPtr = (intWidth & 1) ? 0.5 : 0.0;
+    return true;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasInitAntialiasVars --
+ *
+ *	Create the namespace holding the canvas antialiasing controls and
+ *	link the two C variables to it. Called from TkpInit(), once per
+ *	interpreter.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Creates the namespace and the two linked variables. The C variables
+ *	are process-global, so the settings stay in sync across interpreters.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TkCanvasInitAntialiasVars(
+    Tcl_Interp *interp,		/* Interpreter being initialized. */
+    const char *namespaceName,	/* Namespace that will hold the variables. */
+    int *enabledPtr,		/* Boolean antialiasing switch. */
+    int *limitPtr)		/* Minimum antialiased line width. */
+{
+    char varName[128];
+
+    /*
+     * Both calls fail harmlessly when the namespace or variables already
+     * exist, e.g. when Tk_Init() is called again for the same interpreter.
+     */
+
+    if (Tcl_CreateNamespace(interp, namespaceName, NULL, NULL) == NULL) {
+	Tcl_ResetResult(interp);
+    }
+    snprintf(varName, sizeof(varName), "%s::canvasAntialias", namespaceName);
+    if (Tcl_LinkVar(interp, varName, (char *) enabledPtr,
+	    TCL_LINK_BOOLEAN) != TCL_OK) {
+	Tcl_ResetResult(interp);
+    }
+    snprintf(varName, sizeof(varName), "%s::canvasAntialiasLimit",
+	    namespaceName);
+    if (Tcl_LinkVar(interp, varName, (char *) limitPtr,
+	    TCL_LINK_INT) != TCL_OK) {
+	Tcl_ResetResult(interp);
+    }
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasOutlineStyle --
+ *
+ *	Resolve the outline attributes of an item for its current state
+ *	(active or disabled).  This mirrors what Tk_ChangeOutlineGC()
+ *	configures in the GC, so that the antialiased path and the GC path
+ *	agree on colour, width, dash and stipple.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Fills in the four result pointers.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TkCanvasOutlineStyle(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Tk_Item *item,		/* Item being drawn. */
+    Tk_Outline *outline,		/* Outline attributes of the item. */
+    XColor **colorPtr,		/* Filled with the outline colour. */
+    double *widthPtr,		/* Filled with the outline width. */
+    Tk_Dash **dashPtr,		/* Filled with the dash pattern. */
+    Pixmap *stipplePtr)		/* Filled with the stipple, or None. */
+{
+    Tk_State state = item->state;
+    XColor *color = outline->color;
+    double width = outline->width;
+    Tk_Dash *dash = &outline->dash;
+    Pixmap stipple = outline->stipple;
+
+    if (width < 1.0) {
+	width = 1.0;
+    }
+    if (state == TK_STATE_NULL) {
+	state = Canvas(canvas)->canvas_state;
+    }
+    if (Canvas(canvas)->currentItemPtr == item) {
+	if (outline->activeWidth > width) {
+	    width = outline->activeWidth;
+	}
+	if (outline->activeDash.number != 0) {
+	    dash = &outline->activeDash;
+	}
+	if (outline->activeColor != NULL) {
+	    color = outline->activeColor;
+	}
+	if (outline->activeStipple != None) {
+	    stipple = outline->activeStipple;
+	}
+    } else if (state == TK_STATE_DISABLED) {
+	if (outline->disabledWidth > width) {
+	    width = outline->disabledWidth;
+	}
+	if (outline->disabledDash.number != 0) {
+	    dash = &outline->disabledDash;
+	}
+	if (outline->disabledColor != NULL) {
+	    color = outline->disabledColor;
+	}
+	if (outline->disabledStipple != None) {
+	    stipple = outline->disabledStipple;
+	}
+    }
+    *colorPtr = color;
+    *widthPtr = width;
+    *dashPtr = dash;
+    *stipplePtr = stipple;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasFillColor --
+ *
+ *	Resolve the fill colour of an item for its current state.
+ *
+ * Results:
+ *	Returns the colour to use for filling.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+XColor *
+TkCanvasFillColor(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Tk_Item *item,		/* Item being drawn. */
+    XColor *normal,		/* Colour in the normal state. */
+    XColor *active,		/* Colour in the active state, or NULL. */
+    XColor *disabled)		/* Colour in the disabled state, or NULL. */
+{
+    Tk_State state = item->state;
+
+    if (Canvas(canvas)->currentItemPtr == item) {
+	return (active != NULL) ? active : normal;
+    }
+    if (state == TK_STATE_NULL) {
+	state = Canvas(canvas)->canvas_state;
+    }
+    if (state == TK_STATE_DISABLED && disabled != NULL) {
+	return disabled;
+    }
+    return normal;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasDrawLinesAA --
+ *
+ *	Try to draw a polyline with the platform's antialiasing renderer.
+ *	Returns false when the caller must fall back to the GC path; in
+ *	particular dashed and stippled lines, lines thinner than the
+ *	antialias limit, and builds without an antialiasing backend.
+ *
+ *----------------------------------------------------------------------
+ */
+
+bool
+TkCanvasDrawLinesAA(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Display *display,		/* Display to draw on. */
+    Drawable drawable,		/* Window or pixmap to draw into. */
+    XPoint *points,		/* Polyline vertices. */
+    Tcl_Size npoints,		/* Number of vertices. */
+    double width,		/* Line width. */
+    XColor *color,		/* Line color. */
+    int capStyle,		/* Tk cap style. */
+    int joinStyle,		/* Tk join style. */
+    Tk_Dash *dash,		/* Dash pattern, or NULL for solid. */
+    Pixmap stipple)		/* Stipple pattern, or None. */
+{
+#if defined(HAVE_CAIRO) && !defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkUnixDrawLinesAA(canvas, display, drawable, points, npoints,
+	    width, color, capStyle, joinStyle, dash, stipple);
+#elif defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkWinDrawLinesAA(canvas, display, drawable, points, npoints,
+	    width, color, capStyle, joinStyle, dash, stipple);
+#else
+    (void)canvas;
+    (void)display;
+    (void)drawable;
+    (void)points;
+    (void)npoints;
+    (void)width;
+    (void)color;
+    (void)capStyle;
+    (void)joinStyle;
+    (void)dash;
+    (void)stipple;
+    return false;
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasFillCoordsAA --
+ *
+ *	Fill a closed polygon whose vertices are given in canvas
+ *	coordinates.  Translates them to drawable coordinates and hands the
+ *	polygon to the platform's antialiasing renderer.  Returns false when
+ *	the caller must fall back to the GC path.
+ *
+ *----------------------------------------------------------------------
+ */
+
+bool
+TkCanvasFillCoordsAA(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Display *display,		/* Display to draw on. */
+    Drawable drawable,		/* Window or pixmap to draw into. */
+    double *coords,		/* x,y pairs, in canvas coordinates. */
+    Tcl_Size npoints,		/* Number of vertices. */
+    XColor *color,		/* Fill color. */
+    Pixmap stipple)		/* Stipple pattern, or None. */
+{
+    XPoint staticPoints[MAX_STATIC_POINTS];
+    XPoint *points;
+    Tcl_Size i;
+    short x, y;
+    bool result;
+
+    if (color == NULL || stipple != None || npoints < 3) {
+	return false;
+    }
+    if (npoints <= MAX_STATIC_POINTS) {
+	points = staticPoints;
+    } else {
+	points = (XPoint *)Tcl_Alloc(npoints * sizeof(XPoint));
+    }
+    for (i = 0; i < npoints; i++) {
+	Tk_CanvasDrawableCoords(canvas, coords[2*i], coords[2*i+1], &x, &y);
+	points[i].x = x;
+	points[i].y = y;
+    }
+    result = TkCanvasFillPolygonAA(canvas, display, drawable, points, npoints,
+	    color, stipple);
+    if (points != staticPoints) {
+	Tcl_Free(points);
+    }
+    return result;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasFillPolygonAA --
+ *
+ *	Fill a closed polygon with the platform's antialiasing renderer.
+ *	Returns false when the caller must fall back to the GC path
+ *	(stippled fills and builds without an antialiasing backend).
+ *
+ *----------------------------------------------------------------------
+ */
+
+bool
+TkCanvasFillPolygonAA(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Display *display,		/* Display to draw on. */
+    Drawable drawable,		/* Window or pixmap to draw into. */
+    XPoint *points,		/* Polygon vertices. */
+    Tcl_Size npoints,		/* Number of vertices. */
+    XColor *color,		/* Fill color. */
+    Pixmap stipple)		/* Stipple pattern, or None. */
+{
+    if (color == NULL || stipple != None || npoints < 3) {
+	return false;
+    }
+#if defined(HAVE_CAIRO) && !defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkUnixFillPolygonAA(canvas, display, drawable, points, npoints,
+	    color);
+#elif defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkWinFillPolygonAA(canvas, display, drawable, points, npoints,
+	    color);
+#else
+    (void)canvas;
+    (void)display;
+    (void)drawable;
+    (void)points;
+    (void)npoints;
+    (void)color;
+    return false;
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasDrawArcAA --
+ *
+ *	Draw an arc, oval, chord or pie slice (optionally filled) with the
+ *	platform's antialiasing renderer.  \fIstart\fR and \fIextent\fR are
+ *	in 1/64 degrees, as for the X11 arc calls; \fIstyle\fR is one of
+ *	TK_CANVAS_ARC_STYLE, TK_CANVAS_CHORD_STYLE, TK_CANVAS_PIE_STYLE or
+ *	TK_CANVAS_OVAL_STYLE.  Returns false when the caller must use the
+ *	GC path.
+ *
+ *----------------------------------------------------------------------
+ */
+
+bool
+TkCanvasDrawArcAA(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Display *display,		/* Display to draw on. */
+    Drawable drawable,		/* Window or pixmap to draw into. */
+    int x1,			/* Left of bounding box. */
+    int y1,			/* Top of bounding box. */
+    int x2,			/* Right of bounding box. */
+    int y2,			/* Bottom of bounding box. */
+    int start,			/* Start angle, in 1/64 degrees. */
+    int extent,			/* Angular extent, in 1/64 degrees. */
+    int style,			/* One of the TK_CANVAS_*_STYLE values. */
+    XColor *fillColor,		/* Fill color, or NULL for no fill. */
+    XColor *outlineColor,		/* Outline color, or NULL for no outline. */
+    double width,		/* Outline width. */
+    Pixmap stipple)		/* Stipple pattern, or None. */
+{
+#if defined(HAVE_CAIRO) && !defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkUnixDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+	    start, extent, style, fillColor, outlineColor, width, stipple);
+#elif defined(_WIN32) && !defined(MAC_OSX_TK)
+    return TkWinDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+	    start, extent, style, fillColor, outlineColor, width, stipple);
+#else
+    (void)canvas;
+    (void)display;
+    (void)drawable;
+    (void)x1;
+    (void)y1;
+    (void)x2;
+    (void)y2;
+    (void)start;
+    (void)extent;
+    (void)style;
+    (void)fillColor;
+    (void)outlineColor;
+    (void)width;
+    (void)stipple;
+    return false;
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasDrawLines --
+ *
+ *	Draw a connected polyline for a canvas item. On X11, when Tk is
+ *	built with Cairo support, this uses Cairo's antialiased stroking.
+ *	Otherwise, or when the item uses features that the Cairo path does
+ *	not handle yet, it falls back to the platform's XDrawLines.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Draws the polyline in the given drawable.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TkCanvasDrawLines(
+    Tk_Canvas canvas,		/* Canvas containing the item. */
+    Display *display,		/* Display to draw on. */
+    Drawable drawable,		/* Window or pixmap to draw into. */
+    GC gc,			/* GC for the fallback path. */
+    XPoint *points,		/* Polyline vertices. */
+    Tcl_Size npoints,		/* Number of vertices. */
+    double width,		/* Line width. */
+    XColor *color,		/* Line color. */
+    int capStyle,		/* Tk cap style. */
+    int joinStyle,		/* Tk join style. */
+    Tk_Dash *dash,		/* Dash pattern, or NULL for solid. */
+    Pixmap stipple)		/* Stipple pattern, or None. */
+{
+    if (TkCanvasDrawLinesAA(canvas, display, drawable, points, npoints,
+	    width, color, capStyle, joinStyle, dash, stipple)) {
+	return;
+    }
+    XDrawLines(display, drawable, gc, points, (int)npoints, CoordModeOrigin);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * TkCanvasDrawEnd --
+ *
+ *	Called after a canvas has finished drawing all of its items into a
+ *	drawable, before that drawable is freed or copied.  Releases any
+ *	platform-specific drawing resources that are tied to the drawable
+ *	(currently the cached Cairo surface used by the X11 antialiasing
+ *	path), and flushes buffered drawing so that subsequent reads of the
+ *	drawable see it.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+TkCanvasDrawEnd(void)
+{
+#if defined(HAVE_CAIRO) && !defined(_WIN32) && !defined(MAC_OSX_TK)
+    TkUnixCairoDrawingEnd();
+#endif
 }
 
 /*

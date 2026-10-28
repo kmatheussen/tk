@@ -256,6 +256,24 @@ MODULE_SCOPE  void	TkWinDrawDottedRect(Display *disp, Drawable d,
 			    long pixel, int x, int y, int width, int height);
 
 /*
+ * The following is implemented in tkWinGdiplus.c and used in tkCanvUtil.c
+ * and tkWinInit.c for antialiased canvas line drawing.
+ */
+
+MODULE_SCOPE bool	TkWinDrawLinesAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, XPoint *points, Tcl_Size npoints,
+			    double width, XColor *color, int capStyle,
+			    int joinStyle, Tk_Dash *dash, Pixmap stipple);
+MODULE_SCOPE bool	TkWinFillPolygonAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, XPoint *points, Tcl_Size npoints,
+			    XColor *color);
+MODULE_SCOPE bool	TkWinDrawArcAA(Tk_Canvas canvas, Display *display,
+			    Drawable drawable, int x1, int y1, int x2, int y2,
+			    int start, int extent, int style, XColor *fillColor,
+			    XColor *outlineColor, double width, Pixmap stipple);
+MODULE_SCOPE void	TkWinInitGdiplusDrawing(Tcl_Interp *interp);
+
+/*
  * Common routines used in Windows implementation
  */
 MODULE_SCOPE Tcl_Obj *	TkWin32ErrorObj(HRESULT hrError);

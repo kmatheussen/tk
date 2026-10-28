@@ -682,6 +682,9 @@ ATK_LIBS
 ATK_CFLAGS
 CUPS_LIBS
 CUPS_CFLAGS
+CAIRO_DEPS
+CAIRO_LIBS
+CAIRO_CFLAGS
 XRENDER_LIBS
 XRENDER_CFLAGS
 FONTSYSTEM
@@ -806,6 +809,7 @@ with_x
 enable_xft
 enable_bidi
 enable_xrender
+enable_cairo
 enable_libcups
 enable_xss
 enable_framework
@@ -1464,6 +1468,8 @@ Optional Features:
   --enable-bidi           enable bidirectional/RTL text support using
                           SheenBidi + HarfBuzz (default: yes)
   --enable-xrender        use Xrender to composite photo images with alpha
+                          (default: yes)
+  --enable-cairo          use cairo for antialiased canvas line drawing
                           (default: yes)
   --enable-libcups        use libcups (default: on)
   --enable-xss            use XScreenSaver for activity timer (default: on)
@@ -9000,6 +9006,140 @@ printf '%s\n' "$as_me: WARNING: Can't find xrender configuration -- photo images
 	    enable_xrender=no
 	    XRENDER_CFLAGS=""
 	    XRENDER_LIBS=""
+	fi
+    fi
+fi
+
+
+
+#--------------------------------------------------------------------
+#	Check for Cairo, used for antialiased canvas line drawing on X11.
+#--------------------------------------------------------------------
+
+CAIRO_CFLAGS=""
+CAIRO_LIBS=""
+CAIRO_DEPS=""
+if test $tk_aqua = no; then
+    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking whether to use cairo for antialiased canvas drawing" >&5
+printf %s "checking whether to use cairo for antialiased canvas drawing... " >&6; }
+    # Check whether --enable-cairo was given.
+if test ${enable_cairo+y}
+then :
+  enableval=$enable_cairo; enable_cairo=$enableval
+else case e in #(
+  e) enable_cairo="yes" ;;
+esac
+fi
+
+    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $enable_cairo" >&5
+printf '%s\n' "$enable_cairo" >&6; }
+
+    if test "$enable_cairo" = "yes" ; then
+	found_cairo="yes"
+	CAIRO_CFLAGS=`pkg-config --cflags cairo 2>/dev/null` || found_cairo="no"
+	CAIRO_LIBS=`pkg-config --libs cairo 2>/dev/null` || found_cairo="no"
+	if test "$found_cairo" = "no" ; then
+	    found_cairo="yes"
+	    CAIRO_CFLAGS=""
+	    CAIRO_LIBS="-lcairo"
+	else
+	    CAIRO_DEPS="cairo"
+	fi
+
+	tk_oldCFlags=$CFLAGS
+	CFLAGS="$CFLAGS $XINCLUDES $CAIRO_CFLAGS"
+	tk_oldLibs=$LIBS
+	LIBS="$tk_oldLibs $CAIRO_LIBS $XLIBSW"
+
+	ac_fn_c_check_header_compile "$LINENO" "cairo-xlib.h" "ac_cv_header_cairo_xlib_h" "#include <cairo.h>
+"
+if test "x$ac_cv_header_cairo_xlib_h" = xyes
+then :
+
+else case e in #(
+  e) found_cairo=no ;;
+esac
+fi
+
+	if test "$found_cairo" = "yes" ; then
+	    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking for cairo_xlib_surface_create in -lcairo" >&5
+printf %s "checking for cairo_xlib_surface_create in -lcairo... " >&6; }
+if test ${ac_cv_lib_cairo_cairo_xlib_surface_create+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-lcairo  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char cairo_xlib_surface_create (void);
+int
+main (void)
+{
+return cairo_xlib_surface_create ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_cairo_cairo_xlib_surface_create=yes
+else case e in #(
+  e) ac_cv_lib_cairo_cairo_xlib_surface_create=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_cairo_cairo_xlib_surface_create" >&5
+printf '%s\n' "$ac_cv_lib_cairo_cairo_xlib_surface_create" >&6; }
+if test "x$ac_cv_lib_cairo_cairo_xlib_surface_create" = xyes
+then :
+  printf '%s\n' "#define HAVE_LIBCAIRO 1" >>confdefs.h
+
+  LIBS="-lcairo $LIBS"
+
+else case e in #(
+  e) found_cairo=no ;;
+esac
+fi
+
+	fi
+
+	CFLAGS=$tk_oldCFlags
+	LIBS=$tk_oldLibs
+
+	if test "$found_cairo" = "yes" ; then
+	    if test "$enable_xrender" != "yes" ; then
+		{ printf '%s\n' "$as_me:${as_lineno-$LINENO}: WARNING: Cairo canvas drawing needs Xrender -- disabling" >&5
+printf '%s\n' "$as_me: WARNING: Cairo canvas drawing needs Xrender -- disabling" >&2;}
+		found_cairo=no
+	    fi
+	fi
+
+	if test "$found_cairo" = "yes" ; then
+
+printf '%s\n' "#define HAVE_CAIRO 1" >>confdefs.h
+
+	else
+	    { printf '%s\n' "$as_me:${as_lineno-$LINENO}: WARNING: Can't find usable cairo -- canvas lines will not be antialiased" >&5
+printf '%s\n' "$as_me: WARNING: Can't find usable cairo -- canvas lines will not be antialiased" >&2;}
+	    enable_cairo=no
+	    CAIRO_CFLAGS=""
+	    CAIRO_LIBS=""
+	    CAIRO_DEPS=""
 	fi
     fi
 fi

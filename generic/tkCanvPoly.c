@@ -882,8 +882,11 @@ DisplayPolygon(
 {
     PolygonItem *polyPtr = (PolygonItem *) itemPtr;
     Tk_State state = itemPtr->state;
-    Pixmap stipple = polyPtr->fillStipple;
-    double linewidth = polyPtr->outline.width;
+    XColor *fillColor, *outlineColor;
+    Tk_Dash *outlineDash;
+    Pixmap fillStipple = polyPtr->fillStipple;
+    Pixmap outlineStipple;
+    double linewidth;
 
     if (((polyPtr->fillGC == NULL) && (polyPtr->outline.gc == NULL)) ||
 	    (polyPtr->numPoints < 1) ||
@@ -895,34 +898,33 @@ DisplayPolygon(
 	state = Canvas(canvas)->canvas_state;
     }
     if (Canvas(canvas)->currentItemPtr == itemPtr) {
-	if (polyPtr->outline.activeWidth > linewidth) {
-	    linewidth = polyPtr->outline.activeWidth;
-	}
 	if (polyPtr->activeFillStipple != None) {
-	    stipple = polyPtr->activeFillStipple;
+	    fillStipple = polyPtr->activeFillStipple;
 	}
     } else if (state == TK_STATE_DISABLED) {
-	if (polyPtr->outline.disabledWidth > 0.0) {
-	    linewidth = polyPtr->outline.disabledWidth;
-	}
 	if (polyPtr->disabledFillStipple != None) {
-	    stipple = polyPtr->disabledFillStipple;
+	    fillStipple = polyPtr->disabledFillStipple;
 	}
     }
+
+    fillColor = TkCanvasFillColor(canvas, itemPtr, polyPtr->fillColor,
+	    polyPtr->activeFillColor, polyPtr->disabledFillColor);
+    TkCanvasOutlineStyle(canvas, itemPtr, &polyPtr->outline, &outlineColor,
+	    &linewidth, &outlineDash, &outlineStipple);
 
     /*
      * If we're stippling then modify the stipple offset in the GC. Be sure to
      * reset the offset when done, since the GC is supposed to be read-only.
      */
 
-    if ((stipple != None) && (polyPtr->fillGC != NULL)) {
+    if ((fillStipple != None) && (polyPtr->fillGC != NULL)) {
 	Tk_TSOffset *tsoffset = &polyPtr->tsoffset;
 	int w = 0, h = 0;
 	int flags = tsoffset->flags;
 
 	if (!(flags & TK_OFFSET_INDEX)
 		&& (flags & (TK_OFFSET_CENTER|TK_OFFSET_MIDDLE))) {
-	    Tk_SizeOfBitmap(display, stipple, &w, &h);
+	    Tk_SizeOfBitmap(display, fillStipple, &w, &h);
 	    if (flags & TK_OFFSET_CENTER) {
 		w /= 2;
 	    } else {
@@ -951,13 +953,49 @@ DisplayPolygon(
 	}
 	Tk_CanvasDrawableCoords(canvas, polyPtr->coordPtr[0],
 		polyPtr->coordPtr[1], &x, &y);
-	XFillArc(display, drawable, polyPtr->outline.gc,
+	if (!TkCanvasDrawArcAA(canvas, display, drawable,
 		x - intLineWidth/2, y - intLineWidth/2,
-		(unsigned) intLineWidth+1, (unsigned) intLineWidth+1,
-		0, 64*360);
+		x - intLineWidth/2 + intLineWidth + 1,
+		y - intLineWidth/2 + intLineWidth + 1, 0, 64*360,
+		TK_CANVAS_OVAL_STYLE, fillColor, NULL, 0, fillStipple)) {
+	    XFillArc(display, drawable, polyPtr->outline.gc,
+		    x - intLineWidth/2, y - intLineWidth/2,
+		    (unsigned) intLineWidth+1, (unsigned) intLineWidth+1,
+		    0, 64*360);
+	}
     } else if (!polyPtr->smooth || polyPtr->numPoints < 4) {
-	TkFillPolygon(canvas, polyPtr->coordPtr, polyPtr->numPoints,
-		    display, drawable, polyPtr->fillGC, polyPtr->outline.gc);
+	XPoint staticPoints[MAX_STATIC_POINTS];
+	XPoint *pointPtr;
+	Tcl_Size i;
+
+	if (polyPtr->numPoints <= MAX_STATIC_POINTS) {
+	    pointPtr = staticPoints;
+	} else {
+	    pointPtr = (XPoint *)Tcl_Alloc(polyPtr->numPoints * sizeof(XPoint));
+	}
+	for (i = 0; i < polyPtr->numPoints; i++) {
+	    short x, y;
+
+	    Tk_CanvasDrawableCoords(canvas, polyPtr->coordPtr[2*i],
+		    polyPtr->coordPtr[2*i+1], &x, &y);
+	    pointPtr[i].x = x;
+	    pointPtr[i].y = y;
+	}
+	if ((polyPtr->fillGC != NULL) && (polyPtr->numPoints > 3)) {
+	    if (!TkCanvasFillPolygonAA(canvas, display, drawable, pointPtr,
+		    polyPtr->numPoints, fillColor, fillStipple)) {
+		XFillPolygon(display, drawable, polyPtr->fillGC, pointPtr,
+			(int)polyPtr->numPoints, Complex, CoordModeOrigin);
+	    }
+	}
+	if (polyPtr->outline.gc != NULL) {
+	    TkCanvasDrawLines(canvas, display, drawable, polyPtr->outline.gc,
+		    pointPtr, polyPtr->numPoints, linewidth, outlineColor,
+		    CapRound, polyPtr->joinStyle, outlineDash, outlineStipple);
+	}
+	if (pointPtr != staticPoints) {
+	    Tcl_Free(pointPtr);
+	}
     } else {
 	int numPoints;
 	XPoint staticPoints[MAX_STATIC_POINTS];
@@ -978,19 +1016,23 @@ DisplayPolygon(
 	numPoints = polyPtr->smooth->coordProc(canvas, polyPtr->coordPtr,
 		(int)polyPtr->numPoints, polyPtr->splineSteps, pointPtr, NULL);
 	if (polyPtr->fillGC != NULL) {
-	    XFillPolygon(display, drawable, polyPtr->fillGC, pointPtr,
-		    numPoints, Complex, CoordModeOrigin);
+	    if (!TkCanvasFillPolygonAA(canvas, display, drawable, pointPtr,
+		    numPoints, fillColor, fillStipple)) {
+		XFillPolygon(display, drawable, polyPtr->fillGC, pointPtr,
+			numPoints, Complex, CoordModeOrigin);
+	    }
 	}
 	if (polyPtr->outline.gc != NULL) {
-	    XDrawLines(display, drawable, polyPtr->outline.gc, pointPtr,
-		    numPoints, CoordModeOrigin);
+	    TkCanvasDrawLines(canvas, display, drawable, polyPtr->outline.gc,
+		    pointPtr, numPoints, linewidth, outlineColor, CapRound,
+		    polyPtr->joinStyle, outlineDash, outlineStipple);
 	}
 	if (pointPtr != staticPoints) {
 	    Tcl_Free(pointPtr);
 	}
     }
     Tk_ResetOutlineGC(canvas, itemPtr, &polyPtr->outline);
-    if ((stipple != None) && (polyPtr->fillGC != NULL)) {
+    if ((fillStipple != None) && (polyPtr->fillGC != NULL)) {
 	XSetTSOrigin(display, polyPtr->fillGC, 0, 0);
     }
 }

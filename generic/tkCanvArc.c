@@ -906,7 +906,10 @@ DisplayArc(
 {
     ArcItem *arcPtr = (ArcItem *) itemPtr;
     short x1, y1, x2, y2;
-    int start, extent, dashnumber;
+    int start, extent, dashnumber, aaStyle;
+    XColor *fillColor, *outlineColor;
+    Tk_Dash *outlineDash;
+    Pixmap outlineStipple;
     double lineWidth;
     Tk_State state = itemPtr->state;
     Pixmap stipple;
@@ -914,33 +917,22 @@ DisplayArc(
     if (state == TK_STATE_NULL) {
 	state = Canvas(canvas)->canvas_state;
     }
-    lineWidth = arcPtr->outline.width;
-    if (lineWidth < 1.0) {
-	lineWidth = 1.0;
-    }
-    dashnumber = arcPtr->outline.dash.number;
     stipple = arcPtr->fillStipple;
     if (Canvas(canvas)->currentItemPtr == itemPtr) {
-	if (arcPtr->outline.activeWidth>lineWidth) {
-	    lineWidth = arcPtr->outline.activeWidth;
-	}
-	if (arcPtr->outline.activeDash.number != 0) {
-	    dashnumber = arcPtr->outline.activeDash.number;
-	}
 	if (arcPtr->activeFillStipple != None) {
 	    stipple = arcPtr->activeFillStipple;
 	}
     } else if (state == TK_STATE_DISABLED) {
-	if (arcPtr->outline.disabledWidth > 0) {
-	    lineWidth = arcPtr->outline.disabledWidth;
-	}
-	if (arcPtr->outline.disabledDash.number != 0) {
-	    dashnumber = arcPtr->outline.disabledDash.number;
-	}
 	if (arcPtr->disabledFillStipple != None) {
 	    stipple = arcPtr->disabledFillStipple;
 	}
     }
+
+    fillColor = TkCanvasFillColor(canvas, itemPtr, arcPtr->fillColor,
+	    arcPtr->activeFillColor, arcPtr->disabledFillColor);
+    TkCanvasOutlineStyle(canvas, itemPtr, &arcPtr->outline, &outlineColor,
+	    &lineWidth, &outlineDash, &outlineStipple);
+    dashnumber = outlineDash->number;
 
     /*
      * Compute the screen coordinates of the bounding box for the item, plus
@@ -959,6 +951,17 @@ DisplayArc(
     }
     start = (int) ((64*arcPtr->start) + 0.5);
     extent = (int) ((64*arcPtr->extent) + 0.5);
+    switch (arcPtr->style) {
+    case PIESLICE_STYLE:
+	aaStyle = TK_CANVAS_PIE_STYLE;
+	break;
+    case CHORD_STYLE:
+	aaStyle = TK_CANVAS_CHORD_STYLE;
+	break;
+    default:
+	aaStyle = TK_CANVAS_ARC_STYLE;
+	break;
+    }
 
     /*
      * Display filled arc first (if wanted), then outline. If the extent is
@@ -994,14 +997,29 @@ DisplayArc(
 		tsoffset->yoffset += h;
 	    }
 	}
-	XFillArc(display, drawable, arcPtr->fillGC, x1, y1, (unsigned) (x2-x1),
-		(unsigned) (y2-y1), start, extent);
+	if (!TkCanvasDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+		start, extent, aaStyle, fillColor, NULL, 0, stipple)) {
+	    XFillArc(display, drawable, arcPtr->fillGC, x1, y1,
+		    (unsigned) (x2-x1), (unsigned) (y2-y1), start, extent);
+	}
 	if (stipple != None) {
 	    XSetTSOrigin(display, arcPtr->fillGC, 0, 0);
 	}
     }
     if (arcPtr->outline.gc != NULL) {
 	Tk_ChangeOutlineGC(canvas, itemPtr, &(arcPtr->outline));
+
+	if (extent != 0 && outlineStipple == None && dashnumber == 0
+		&& TkCanvasDrawArcAA(canvas, display, drawable, x1, y1, x2, y2,
+		start, extent, aaStyle, NULL, outlineColor, lineWidth, None)) {
+	    /*
+	     * The antialiased renderer drew the arc and, for chords and pie
+	     * slices, the straight edges as part of the same path.
+	     */
+
+	    Tk_ResetOutlineGC(canvas, itemPtr, &(arcPtr->outline));
+	    return;
+	}
 
 	if (extent != 0) {
 	    XDrawArc(display, drawable, arcPtr->outline.gc, x1, y1,

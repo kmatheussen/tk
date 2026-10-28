@@ -47,6 +47,7 @@ TkpInit(
     TkWinXInit(Tk_GetHINSTANCE());
     Icu_Init(interp);
     TkWinAccessiblity_Init(interp);
+    TkWinInitGdiplusDrawing(interp);
     return TCL_OK;
 }
 
